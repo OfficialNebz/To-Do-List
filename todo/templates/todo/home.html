@@ -1,0 +1,503 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>My To‑Do List</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'todo/style.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+    <!-- Top app bar -->
+    <nav class="topbar">
+        <div class="topbar-left">
+            <div class="brand">
+                <i class="fa-solid fa-check-double"></i>
+                <span>Todo</span>
+            </div>
+        </div>
+        <div class="topbar-right">
+            <button class="icon-btn ghost" aria-label="Theme">
+                <i class="fa-solid fa-sun"></i>
+            </button>
+            <button class="icon-btn ghost" aria-label="Settings">
+                <i class="fa-solid fa-gear"></i>
+            </button>
+        </div>
+    </nav>
+
+    <main class="page">
+        <section class="card">
+            <header class="card-header">
+                <div class="title-row">
+                    <h1 class="app-title">My To‑Do List</h1>
+                    <span class="count-pill">Total tasks: <strong id="task-count">{{ tasks|length }}</strong></span>
+                </div>
+
+                <!-- Segmented filters -->
+                <div class="segmented">
+                    <a href="?filter=all" class="seg-btn {% if filter == 'all' %}active{% endif %}">All</a>
+                    <a href="?filter=pending" class="seg-btn {% if filter == 'pending' %}active{% endif %}">Pending</a>
+                    <a href="?filter=completed" class="seg-btn {% if filter == 'completed' %}active{% endif %}">Completed</a>
+                    <a href="?filter=urgent" class="seg-btn {% if filter == 'urgent' %}active{% endif %}">Urgent</a>
+                </div>
+            </header>
+
+            <!-- Add task form -->
+            <form method="post" action="{% url 'add_task' %}" id="add-form" class="form-grid">
+                {% csrf_token %}
+                <div class="input-wrap">
+                    <label class="label">Task</label>
+                    <input class="input" type="text" name="title" placeholder="Prep pitch deck for demo day…" required />
+                </div>
+
+                <!-- Custom floating dropdown (Priority) -->
+                <div class="input-wrap">
+                    <label class="label">Priority</label>
+                    <div class="dropdown" data-name="priority">
+                        <button type="button" class="dropdown-toggle">
+                            <span class="dropdown-label">Important</span>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li data-value="important" class="active">Important</li>
+                            <li data-value="urgent">Urgent</li>
+                            <li data-value="not_urgent">Not urgent</li>
+                            <li data-value="not_important">Not important</li>
+                        </ul>
+                        <input type="hidden" name="priority" value="important">
+                    </div>
+                </div>
+
+                <!-- Custom floating calendar (Due date) -->
+                <div class="input-wrap">
+                    <label class="label">Due date</label>
+                    <div class="calendar-picker">
+                        <button type="button" class="calendar-toggle">
+                            <span class="calendar-label">Select date</span>
+                            <i class="fa-solid fa-calendar"></i>
+                        </button>
+                        <div class="calendar-popup"></div>
+                        <input type="hidden" name="due_date">
+                    </div>
+                </div>
+
+                <div class="action-wrap">
+                    <button class="btn btn-primary" type="submit">
+                        <i class="fa-solid fa-plus"></i>
+                        Add task
+                    </button>
+                </div>
+            </form>
+
+            <!-- Task list -->
+            <ul id="task-list" class="list">
+                {% if tasks %}
+                    {% for task in tasks %}
+                        {% include "todo/task_item.html" %}
+                    {% endfor %}
+                {% else %}
+                    <li id="no-tasks" class="empty">
+                        <div class="empty-illustration">
+                            <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                <rect x="20" y="32" width="80" height="56" rx="12" fill="url(#grad)"/>
+                                <rect x="32" y="48" width="56" height="8" rx="4" fill="rgba(255,255,255,0.7)"/>
+                                <rect x="32" y="64" width="40" height="8" rx="4" fill="rgba(255,255,255,0.45)"/>
+                                <defs>
+                                    <linearGradient id="grad" x1="20" y1="32" x2="100" y2="88" gradientUnits="userSpaceOnUse">
+                                        <stop stop-color="#8EA6FF"/>
+                                        <stop offset="1" stop-color="#B48CFF"/>
+                                    </linearGradient>
+                                </defs>
+                            </svg>
+                        </div>
+                        <div class="empty-text">
+                            <h2>Nothing here yet</h2>
+                            <p>Add your first task to get moving.</p>
+                        </div>
+                    </li>
+                {% endif %}
+            </ul>
+
+            <!-- Snackbar -->
+            <div id="snackbar" class="snackbar" aria-live="polite"></div>
+        </section>
+    </main>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const form = document.getElementById("add-form");
+        const taskList = document.getElementById("task-list");
+        const taskCount = document.getElementById("task-count");
+        const snackbar = document.getElementById("snackbar");
+
+        // CSRF helper for POSTs
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(";").shift();
+        }
+        const csrftoken = getCookie("csrftoken");
+
+        // Custom dropdown (Priority)
+        document.querySelectorAll(".dropdown").forEach(drop => {
+            const toggle = drop.querySelector(".dropdown-toggle");
+            const menu = drop.querySelector(".dropdown-menu");
+            const label = drop.querySelector(".dropdown-label");
+            const hidden = drop.querySelector("input[type=hidden]");
+
+            // Open/close
+            toggle.addEventListener("click", (e) => {
+                e.stopPropagation();
+                closeAllDropdowns();
+                drop.classList.toggle("open");
+            });
+
+            // Select value
+            menu.querySelectorAll("li").forEach(item => {
+                item.addEventListener("click", () => {
+                    menu.querySelectorAll("li").forEach(li => li.classList.remove("active"));
+                    item.classList.add("active");
+                    label.textContent = item.textContent;
+                    hidden.value = item.dataset.value;
+                    drop.classList.remove("open");
+                });
+            });
+        });
+        function closeAllDropdowns() {
+            document.querySelectorAll(".dropdown.open").forEach(d => d.classList.remove("open"));
+        }
+        document.addEventListener("click", () => closeAllDropdowns());
+
+        // Custom calendar
+        document.querySelectorAll(".calendar-picker").forEach(picker => {
+            const toggle = picker.querySelector(".calendar-toggle");
+            const popup = picker.querySelector(".calendar-popup");
+            const hidden = picker.querySelector("input[type=hidden]");
+            const label = picker.querySelector(".calendar-label");
+
+            toggle.addEventListener("click", (e) => {
+                e.stopPropagation();
+                closeAllCalendars();
+                picker.classList.toggle("open");
+                if (picker.classList.contains("open")) {
+                    renderCalendar(popup, hidden, label);
+                }
+            });
+        });
+        function closeAllCalendars() {
+            document.querySelectorAll(".calendar-picker.open").forEach(p => p.classList.remove("open"));
+        }
+        document.addEventListener("click", () => closeAllCalendars());
+
+        // Add task
+        form.addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const formData = new FormData(form); // contains csrf_token + hidden priority + hidden due_date
+
+            const response = await fetch("{% url 'add_task' %}", {
+                method: "POST",
+                body: formData,
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                taskList.insertAdjacentHTML("afterbegin", data.html);
+                form.reset();
+
+                // Reset labels after form reset
+                const prLabel = document.querySelector(".dropdown-label");
+                if (prLabel) prLabel.textContent = "Important";
+                const calLabel = document.querySelector(".calendar-label");
+                if (calLabel) calLabel.textContent = "Select date";
+
+                taskCount.textContent = parseInt(taskCount.textContent) + 1;
+
+                const empty = document.getElementById("no-tasks");
+                if (empty) empty.remove();
+
+                attachTaskEvents();
+                toast("Task added");
+            }
+        });
+
+        // Attach events to list items
+        function attachTaskEvents() {
+            // Toggle complete
+            document.querySelectorAll(".toggle").forEach(btn => {
+                btn.onclick = async function(e) {
+                    e.preventDefault();
+                    const url = this.getAttribute("href");
+                    const item = this.closest(".item");
+                    const title = item.querySelector(".title");
+                    const statusIcon = item.querySelector(".status");
+
+                    const response = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" }});
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.completed) {
+                            title.classList.add("done");
+                            statusIcon.textContent = "✅";
+                            toast("Marked complete");
+                        } else {
+                            title.classList.remove("done");
+                            statusIcon.textContent = "⬜";
+                            toast("Marked pending");
+                        }
+                    }
+                };
+            });
+
+            // Delete with fade and undo
+            document.querySelectorAll(".delete").forEach(btn => {
+                btn.onclick = async function(e) {
+                    e.preventDefault();
+                    const url = this.getAttribute("href");
+                    const li = this.closest(".item");
+
+                    const payload = {
+                        title: li.dataset.title,
+                        priority: li.dataset.priority,
+                        due_date: li.dataset.dueDate || ""
+                    };
+
+                    const response = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" }});
+                    if (response.ok) {
+                        li.classList.add("fade-out");
+                        setTimeout(() => {
+                            li.remove();
+                            taskCount.textContent = Math.max(0, parseInt(taskCount.textContent) - 1);
+
+                            if (parseInt(taskCount.textContent) === 0) {
+                                taskList.innerHTML = emptyTemplate();
+                            }
+
+                            showUndo(payload);
+                        }, 220);
+                    }
+                };
+            });
+
+            // Inline edit
+            document.querySelectorAll(".edit").forEach(btn => {
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    const li = this.closest(".item");
+                    const titleText = li.querySelector(".title-text");
+                    const original = titleText.textContent.trim();
+
+                    const input = document.createElement("input");
+                    input.type = "text";
+                    input.value = original;
+                    input.className = "edit-input";
+                    titleText.replaceWith(input);
+                    input.focus();
+
+                    input.addEventListener("keydown", async function(ev) {
+                        if (ev.key === "Enter") {
+                            const newTitle = input.value.trim();
+                            if (!newTitle) return;
+
+                            const url = li.dataset.editUrl;
+                            const fd = new FormData();
+                            fd.append("title", newTitle);
+
+                            const response = await fetch(url, {
+                                method: "POST",
+                                body: fd,
+                                headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrftoken }
+                            });
+
+                            if (response.ok) {
+                                const data = await response.json();
+                                const wrapper = document.createElement("div");
+                                wrapper.innerHTML = data.html;
+                                li.replaceWith(wrapper.firstElementChild);
+                                attachTaskEvents();
+                                toast("Task updated");
+                            }
+                        }
+                        if (ev.key === "Escape") {
+                            const span = document.createElement("span");
+                            span.className = "title-text";
+                            span.textContent = original;
+                            input.replaceWith(span);
+                        }
+                    });
+                };
+            });
+
+            // Priority change inside list (native select retained for simplicity)
+            document.querySelectorAll(".priority-select").forEach(sel => {
+                sel.onchange = async function() {
+                    const li = this.closest(".item");
+                    const url = li.dataset.priorityUrl;
+                    const fd = new FormData();
+                    fd.append("priority", this.value);
+
+                    const response = await fetch(url, {
+                        method: "POST",
+                        body: fd,
+                        headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrftoken }
+                    });
+
+                    if (response.ok) {
+                        const badge = li.querySelector(".badge");
+                        badge.dataset.priority = this.value;
+                        badge.textContent = this.options[this.selectedIndex].text;
+                        li.dataset.priority = this.value;
+                        toast("Priority updated");
+                    }
+                };
+            });
+        }
+
+        function showUndo(payload) {
+            snackbar.innerHTML = `Task deleted <button id="undo-btn" class="btn btn-undo">Undo</button>`;
+            snackbar.classList.add("show");
+
+            const timer = setTimeout(() => {
+                snackbar.classList.remove("show");
+            }, 4500);
+
+            document.getElementById("undo-btn").onclick = async function() {
+                clearTimeout(timer);
+                const fd = new FormData();
+                fd.append("title", payload.title);
+                fd.append("priority", payload.priority);
+                fd.append("due_date", payload.due_date);
+
+                const response = await fetch("{% url 'undo_delete' %}", {
+                    method: "POST",
+                    body: fd,
+                    headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrftoken }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    taskList.insertAdjacentHTML("afterbegin", data.html);
+                    taskCount.textContent = parseInt(taskCount.textContent) + 1;
+
+                    // Remove empty state if present
+                    const empty = document.getElementById("no-tasks");
+                    if (empty) empty.remove();
+
+                    snackbar.classList.remove("show");
+                    attachTaskEvents();
+                    toast("Task restored");
+                }
+            };
+        }
+
+        function toast(message) {
+            snackbar.innerHTML = message;
+            snackbar.classList.add("show");
+            setTimeout(() => snackbar.classList.remove("show"), 1600);
+        }
+
+        function emptyTemplate() {
+            return `
+                <li id="no-tasks" class="empty">
+                    <div class="empty-illustration">
+                        <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <rect x="20" y="32" width="80" height="56" rx="12" fill="url(#grad2)"/>
+                            <rect x="32" y="48" width="56" height="8" rx="4" fill="rgba(255,255,255,0.7)"/>
+                            <rect x="32" y="64" width="40" height="8" rx="4" fill="rgba(255,255,255,0.45)"/>
+                            <defs>
+                                <linearGradient id="grad2" x1="20" y1="32" x2="100" y2="88" gradientUnits="userSpaceOnUse">
+                                    <stop stop-color="#8EA6FF"/>
+                                    <stop offset="1" stop-color="#B48CFF"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                    <div class="empty-text">
+                        <h2>All clear</h2>
+                        <p>Create a task to get started.</p>
+                    </div>
+                </li>
+            `.trim();
+        }
+
+        // Calendar rendering (dark themed, rounded, floating)
+        function renderCalendar(container, hiddenInput, label) {
+            const today = new Date();
+            let currentMonth = today.getMonth();
+            let currentYear = today.getFullYear();
+
+            function monthName(m, y) {
+                return new Date(y, m, 1).toLocaleString("default", { month: "long" }) + " " + y;
+            }
+
+            function updateCalendar() {
+                container.innerHTML = "";
+
+                const header = document.createElement("div");
+                header.className = "cal-header";
+                header.innerHTML = `
+                    <button class="cal-nav prev" aria-label="Previous month">‹</button>
+                    <span class="cal-title">${monthName(currentMonth, currentYear)}</span>
+                    <button class="cal-nav next" aria-label="Next month">›</button>
+                `;
+                container.appendChild(header);
+
+                const grid = document.createElement("div");
+                grid.className = "cal-grid";
+                const days = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+                days.forEach(d => {
+                    const el = document.createElement("div");
+                    el.className = "cal-day-label";
+                    el.textContent = d;
+                    grid.appendChild(el);
+                });
+
+                const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+                const daysInMonth = new Date(currentYear, currentMonth+1, 0).getDate();
+
+                for (let i=0; i<firstDay; i++) {
+                    const pad = document.createElement("div");
+                    pad.className = "cal-pad";
+                    grid.appendChild(pad);
+                }
+
+                for (let d=1; d<=daysInMonth; d++) {
+                    const el = document.createElement("button");
+                    el.type = "button";
+                    el.className = "cal-day";
+                    el.textContent = d;
+
+                    const isToday = (currentYear === today.getFullYear() && currentMonth === today.getMonth() && d === today.getDate());
+                    if (isToday) el.classList.add("today");
+
+                    el.onclick = () => {
+                        const dateStr = `${currentYear}-${String(currentMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+                        hiddenInput.value = dateStr;
+                        label.textContent = dateStr;
+                        container.parentElement.classList.remove("open");
+                    };
+                    grid.appendChild(el);
+                }
+                container.appendChild(grid);
+
+                header.querySelector(".prev").onclick = () => {
+                    currentMonth--;
+                    if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+                    updateCalendar();
+                };
+                header.querySelector(".next").onclick = () => {
+                    currentMonth++;
+                    if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+                    updateCalendar();
+                };
+            }
+            updateCalendar();
+        }
+
+        // Initial bindings for existing list
+        attachTaskEvents();
+    });
+    </script>
+</body>
+</html>

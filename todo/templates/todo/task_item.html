@@ -1,0 +1,50 @@
+<li
+    class="item"
+    data-title="{{ task.title }}"
+    data-priority="{{ task.priority }}"
+    data-due-date="{{ task.due_date|default_if_none:'' }}"
+    data-edit-url="{% url 'edit_task' task.id %}"
+    data-priority-url="{% url 'set_priority' task.id %}"
+>
+    <div class="item-left">
+        <span class="status">{% if task.completed %}✅{% else %}⬜{% endif %}</span>
+        <span class="title {% if task.completed %}done{% endif %}">
+            <span class="title-text">{{ task.title }}</span>
+        </span>
+    </div>
+
+    <div class="item-right">
+        <div class="meta">
+            {% if task.due_date %}
+                <span class="due">
+                    Due: <strong class="{% if not task.completed and task.due_date|date:'U' < now|date:'U' %}overdue{% endif %}">{{ task.due_date }}</strong>
+                </span>
+            {% endif %}
+            <span class="badge" data-priority="{{ task.priority }}">
+                {% if task.priority == 'urgent' %}Urgent{% elif task.priority == 'important' %}Important{% elif task.priority == 'not_urgent' %}Not urgent{% else %}Not important{% endif %}
+            </span>
+            <!-- Keep native select for inline priority change inside list -->
+            <div class="select-wrap compact">
+                <select class="select priority-select">
+                    <option value="important" {% if task.priority == 'important' %}selected{% endif %}>Important</option>
+                    <option value="urgent" {% if task.priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                    <option value="not_urgent" {% if task.priority == 'not_urgent' %}selected{% endif %}>Not urgent</option>
+                    <option value="not_important" {% if task.priority == 'not_important' %}selected{% endif %}>Not important</option>
+                </select>
+                <span class="chevron"><i class="fa-solid fa-chevron-down"></i></span>
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="{% url 'toggle_task' task.id %}" class="icon-btn toggle" title="Toggle complete">
+                <i class="fa-solid fa-check"></i>
+            </a>
+            <a href="#" class="icon-btn edit" title="Edit title">
+                <i class="fa-solid fa-pen"></i>
+            </a>
+            <a href="{% url 'delete_task' task.id %}" class="icon-btn danger delete" title="Delete task">
+                <i class="fa-solid fa-trash"></i>
+            </a>
+        </div>
+    </div>
+</li>
